@@ -1,0 +1,531 @@
+// AlgoRank — database schema.
+//
+// Design notes (see PLAN.md §3 for full rationale):
+//   * Every entity that originates outside our DB carries (source, sourceId).
+//     A unique constraint on (source, sourceId) provides idempotent upserts.
+//   * Every such entity also carries `rawJson` so we never lose upstream data
+//     we did not model.
+//   * The model is game-agnostic. We filter to Melee at ingest, but the schema
+//     itself does not assume Smash.
+//   * SQLite for local dev; the schema is written to migrate cleanly to
+//     PostgreSQL later (no SQLite-only types are used).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Source taxonomy
+// ----------------------------------------------------------------------------
+
+// Stored as TEXT for SQLite portability; values are constants in TypeScript.
+//
+//   STARTGG    — pulled from the start.gg GraphQL API
+//   MANUAL     — entered by hand or via ad-hoc importer
+//   LIQUIPEDIA — future
+//   SMASHWIKI  — future
+
+// ----------------------------------------------------------------------------
+// Reference tables (videogame, character, stage)
+// ----------------------------------------------------------------------------
+
+model Videogame {
+  id          Int      @id @default(autoincrement())
+  source      String
+  sourceId    String
+  externalKey String   @unique
+  name        String
+  displayName String?
+  slug        String?
+  rawJson     String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  events Event[]
+
+  @@unique([source, sourceId])
+  @@index([slug])
+}
+
+model Character {
+  id          Int      @id @default(autoincrement())
+  source      String
+  sourceId    String
+  externalKey String   @unique
+  name        String
+  imageUrl    String?
+  rawJson     String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  selections GameSelection[]
+
+  @@unique([source, sourceId])
+}
+
+model Stage {
+  id          Int      @id @default(autoincrement())
+  source      String
+  sourceId    String
+  externalKey String   @unique
+  name        String
+  imageUrl    String?
+  rawJson     String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  games Game[]
+
+  @@unique([source, sourceId])
+}
+
+// ----------------------------------------------------------------------------
+// Identity (User -> Player -> Participant)
+// ----------------------------------------------------------------------------
+
+model User {
+  id            Int      @id @default(autoincrement())
+  source        String
+  sourceId      String
+  externalKey   String   @unique
+  slug          String?
+  discriminator String?
+  name          String?
+  bio           String?
+  location      String?
+  genderPronoun String?
+  rawJson       String?
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  players Player[]
+
+  @@unique([source, sourceId])
+  @@index([slug])
+}
+
+model Player {
+  id          Int      @id @default(autoincrement())
+  source      String
+  sourceId    String
+  externalKey String   @unique
+  gamerTag    String?
+  prefix      String?
+  userId      Int?
+  rawJson     String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id])
+  participants Participant[]
+
+  @@unique([source, sourceId])
+  @@index([gamerTag])
+  @@index([userId])
+}
+
+// ----------------------------------------------------------------------------
+// Tournament hierarchy
+// ----------------------------------------------------------------------------
+
+model Tournament {
+  id                     Int      @id @default(autoincrement())
+  source                 String
+  sourceId               String
+  externalKey            String   @unique
+  name                   String
+  slug                   String?
+  shortSlug              String?
+  startAt                DateTime?
+  endAt                  DateTime?
+  registrationClosesAt   DateTime?
+  timezone               String?
+  city                   String?
+  addrState              String?
+  countryCode            String?
+  postalCode             String?
+  lat                    Float?
+  lng                    Float?
+  venueName              String?
+  venueAddress           String?
+  hashtag                String?
+  currency               String?
+  isOnline               Boolean?
+  hasOfflineEvents       Boolean?
+  hasOnlineEvents        Boolean?
+  numAttendees           Int?
+  ownerSourceId          String?
+  primaryContact         String?
+  primaryContactType     String?
+  mapsPlaceId            String?
+  rules                  String?
+  url                    String?
+  rawJson                String?
+  firstSeenAt            DateTime @default(now())
+  lastSeenAt             DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  events Event[]
+
+  @@unique([source, sourceId])
+  @@index([slug])
+  @@index([startAt])
+}
+
+model Event {
+  id              Int      @id @default(autoincrement())
+  source          String
+  sourceId        String
+  externalKey     String   @unique
+  tournamentId    Int
+  videogameId     Int?
+  name            String
+  slug            String?
+  type            Int?     // 1 = singles, 5 = teams (start.gg convention; preserved verbatim)
+  startAt         DateTime?
+  state           Int?
+  numEntrants     Int?
+  teamRosterSize  Int?
+  isOnline        Boolean?
+  prizingInfo     String?
+  rulesetId       Int?
+  useEventSeeds   Boolean?
+  ownerSourceId   String?
+  rawJson         String?
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tournament Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  videogame  Videogame?  @relation(fields: [videogameId], references: [id])
+  phases     Phase[]
+  entrants   Entrant[]
+  sets       Set[]
+  standings  Standing[]
+
+  @@unique([source, sourceId])
+  @@index([tournamentId])
+  @@index([videogameId])
+  @@index([slug])
+}
+
+model Phase {
+  id            Int      @id @default(autoincrement())
+  source        String
+  sourceId      String
+  externalKey   String   @unique
+  eventId       Int
+  name          String?
+  phaseOrder    Int?
+  numSeeds      Int?
+  bracketType   String?
+  groupCount    Int?
+  isExhibition  Boolean?
+  state         Int?
+  rawJson       String?
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  event       Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  phaseGroups PhaseGroup[]
+
+  @@unique([source, sourceId])
+  @@index([eventId])
+}
+
+model PhaseGroup {
+  id                Int      @id @default(autoincrement())
+  source            String
+  sourceId          String
+  externalKey       String   @unique
+  phaseId           Int
+  displayIdentifier String?
+  bracketType       String?
+  firstRoundTime    DateTime?
+  state             Int?
+  waveSourceId      String?
+  numRounds         Int?
+  rawJson           String?
+  firstSeenAt       DateTime @default(now())
+  lastSeenAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  phase     Phase     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  sets      Set[]
+  standings Standing[]
+
+  @@unique([source, sourceId])
+  @@index([phaseId])
+}
+
+// ----------------------------------------------------------------------------
+// Entrants and participants
+// ----------------------------------------------------------------------------
+
+model Entrant {
+  id              Int      @id @default(autoincrement())
+  source          String
+  sourceId        String
+  externalKey     String   @unique
+  eventId         Int
+  name            String?
+  isDisqualified  Boolean?
+  initialSeedNum  Int?
+  finalPlacement  Int?
+  rawJson         String?
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participants Participant[]
+  slots        SetSlot[]
+  games        Game[]
+  selections   GameSelection[]
+  standings    Standing[]
+
+  @@unique([source, sourceId])
+  @@index([eventId])
+  @@index([name])
+}
+
+model Participant {
+  id           Int      @id @default(autoincrement())
+  source       String
+  sourceId     String
+  externalKey  String   @unique
+  entrantId    Int
+  playerId     Int?
+  gamerTag     String?
+  prefix       String?
+  rawJson      String?
+  firstSeenAt  DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  entrant    Entrant         @relation(fields: [entrantId], references: [id], onDelete: Cascade)
+  player     Player?         @relation(fields: [playerId], references: [id])
+  selections GameSelection[]
+
+  @@unique([source, sourceId])
+  @@index([entrantId])
+  @@index([playerId])
+  @@index([gamerTag])
+}
+
+// ----------------------------------------------------------------------------
+// Sets, slots, games, selections
+// ----------------------------------------------------------------------------
+
+model Set {
+  id                Int      @id @default(autoincrement())
+  source            String
+  sourceId          String
+  externalKey       String   @unique
+  eventId           Int
+  phaseGroupId      Int?
+  identifier        String?
+  displayScore      String?
+  fullRoundText     String?
+  round             Int?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  state             Int?
+  totalGames        Int?
+  winnerEntrantId   Int?
+  loserEntrantId    Int?
+  isGF              Boolean?
+  lPlacement        Int?
+  wPlacement        Int?
+  hasPlaceholder    Boolean?
+  hasErrors         Boolean?
+  station           String?
+  streamSourceId    String?
+  vodUrl            String?
+  setGamesType      Int?
+  rawJson           String?
+  firstSeenAt       DateTime @default(now())
+  lastSeenAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  phaseGroup PhaseGroup? @relation(fields: [phaseGroupId], references: [id])
+  slots      SetSlot[]
+  games      Game[]
+
+  @@unique([source, sourceId])
+  @@index([eventId])
+  @@index([phaseGroupId])
+  @@index([completedAt])
+  @@index([winnerEntrantId])
+  @@index([loserEntrantId])
+}
+
+// SetSlot is the bracket-reconstruction backbone: each slot records what fed
+// it (a previous set's winner/loser, a seed, a bye). See PLAN.md §3.3.
+model SetSlot {
+  id                  Int      @id @default(autoincrement())
+  source              String
+  sourceId            String
+  externalKey         String   @unique
+  setId               Int
+  slotIndex           Int
+  entrantId           Int?
+  seedNum             Int?
+  prereqType          String?  // "set" | "seed" | "bye"
+  prereqSourceSetId   String?  // sourceId of the set whose result fills this slot
+  prereqPlacement     Int?     // 1 = winner, 2 = loser, etc.
+  rawJson             String?
+  firstSeenAt         DateTime @default(now())
+  lastSeenAt          DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  set     Set      @relation(fields: [setId], references: [id], onDelete: Cascade)
+  entrant Entrant? @relation(fields: [entrantId], references: [id])
+
+  @@unique([source, sourceId])
+  @@unique([setId, slotIndex])
+  @@index([setId])
+  @@index([entrantId])
+  @@index([prereqSourceSetId])
+}
+
+model Game {
+  id              Int      @id @default(autoincrement())
+  source          String
+  sourceId        String
+  externalKey     String   @unique
+  setId           Int
+  orderNum        Int      // 1-indexed game number within the set
+  winnerEntrantId Int?
+  state           Int?
+  stageId         Int?
+  // For Smash games, score is stocks remaining (per start.gg docs).
+  entrant1Score   Int?
+  entrant2Score   Int?
+  rawJson         String?
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  set        Set             @relation(fields: [setId], references: [id], onDelete: Cascade)
+  winner     Entrant?        @relation(fields: [winnerEntrantId], references: [id])
+  stage      Stage?          @relation(fields: [stageId], references: [id])
+  selections GameSelection[]
+
+  @@unique([source, sourceId])
+  @@unique([setId, orderNum])
+  @@index([setId])
+  @@index([stageId])
+  @@index([winnerEntrantId])
+}
+
+model GameSelection {
+  id              Int      @id @default(autoincrement())
+  source          String
+  sourceId        String
+  externalKey     String   @unique
+  gameId          Int
+  entrantId       Int?
+  participantId   Int?
+  characterId     Int?
+  selectionType   String?
+  selectionValue  Int?
+  orderNum        Int?
+  rawJson         String?
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  game        Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  entrant     Entrant?     @relation(fields: [entrantId], references: [id])
+  participant Participant? @relation(fields: [participantId], references: [id])
+  character   Character?   @relation(fields: [characterId], references: [id])
+
+  @@unique([source, sourceId])
+  @@index([gameId])
+  @@index([entrantId])
+  @@index([participantId])
+  @@index([characterId])
+}
+
+// ----------------------------------------------------------------------------
+// Standings (final placements). Importantly: not foreign-keyed to sets, so a
+// "results-list-only" tournament with no bracket data still fits cleanly.
+// ----------------------------------------------------------------------------
+
+model Standing {
+  id            Int      @id @default(autoincrement())
+  source        String
+  sourceId      String
+  externalKey   String   @unique
+  eventId       Int?
+  phaseGroupId  Int?
+  entrantId     Int?
+  placement     Int?
+  isFinal       Boolean?
+  totalPoints   Float?
+  metadata      String?  // arbitrary JSON for non-standard formats (race, etc.)
+  rawJson       String?
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  event      Event?      @relation(fields: [eventId], references: [id])
+  phaseGroup PhaseGroup? @relation(fields: [phaseGroupId], references: [id])
+  entrant    Entrant?    @relation(fields: [entrantId], references: [id])
+
+  @@unique([source, sourceId])
+  @@index([eventId, placement])
+  @@index([phaseGroupId, placement])
+  @@index([entrantId])
+}
+
+// ----------------------------------------------------------------------------
+// Ingestion bookkeeping
+// ----------------------------------------------------------------------------
+
+model IngestionRun {
+  id            Int      @id @default(autoincrement())
+  source        String
+  mode          String   // "range" | "tournament" | "weekly" | "introspect" | ...
+  paramsJson    String   // verbatim CLI args / filters
+  startedAt     DateTime @default(now())
+  finishedAt    DateTime?
+  status        String   @default("running") // "running" | "succeeded" | "failed"
+  errorMessage  String?
+
+  checkpoints IngestionCheckpoint[]
+
+  @@index([source, mode])
+  @@index([startedAt])
+}
+
+// One row per (run, scope-key, stage). Stages: "tournament", "events",
+// "phases", "phase_groups", "entrants", "sets", "standings".
+model IngestionCheckpoint {
+  id         Int      @id @default(autoincrement())
+  runId      Int
+  scopeKey   String   // e.g. "tournament:STARTGG:517161"
+  stage      String
+  page       Int      @default(0)
+  done       Boolean  @default(false)
+  metaJson   String?
+  updatedAt  DateTime @updatedAt
+
+  run IngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, scopeKey, stage])
+  @@index([runId])
+}

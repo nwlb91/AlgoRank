@@ -1,0 +1,47 @@
+{
+  "name": "algorank",
+  "version": "0.0.1",
+  "private": true,
+  "description": "AlgoRank — Super Smash Bros. Melee ranking project. Data layer first.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "algorank": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "cli": "tsx src/cli/index.ts",
+    "introspect": "tsx src/cli/index.ts introspect",
+    "ingest:range": "tsx src/cli/index.ts ingest range",
+    "ingest:tournament": "tsx src/cli/index.ts ingest tournament",
+    "codegen": "graphql-codegen --config codegen.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "lint": "tsc --noEmit",
+    "test": "node --test --import tsx 'src/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bottleneck": "^2.19.5",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "graphql": "^16.9.0",
+    "graphql-request": "^7.1.2",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.3",
+    "@graphql-codegen/typescript": "^4.1.2",
+    "@graphql-codegen/typescript-graphql-request": "^6.2.0",
+    "@graphql-codegen/typescript-operations": "^4.4.0",
+    "@types/node": "^22.10.5",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
