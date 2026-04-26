@@ -9,7 +9,10 @@ const SCHEMA_SDL_PATH = "schema/startgg.graphql";
 
 export async function introspectAndWrite(): Promise<{ jsonPath: string; sdlPath: string }> {
   log.info({ endpoint: "https://api.start.gg/gql/alpha" }, "running introspection");
-  const query = getIntrospectionQuery({ descriptions: true, schemaDescription: true });
+  // Note: schemaDescription is intentionally omitted. start.gg's server does
+  // not implement the `__schema.description` field (a newer spec addition)
+  // and rejects the standard introspection query if it's requested.
+  const query = getIntrospectionQuery({ descriptions: true });
   const data = await gql<IntrospectionQuery>(query, {}, { opName: "introspection" });
 
   for (const path of [SCHEMA_JSON_PATH, SCHEMA_SDL_PATH]) {
