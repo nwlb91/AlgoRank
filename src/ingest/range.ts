@@ -138,25 +138,59 @@ async function ingestEvent(
   let standingsPage = 1;
   let standingsTotalPages = 1;
 
+  // Page sizes auto-shrink when start.gg reports the request as too complex.
+  // Initial defaults are conservative; entrants are the heaviest because each
+  // node pulls participant -> player -> user (deeply nested).
+  let entrantsPerPage = 25;
+  let standingsPerPage = 50;
+  let phaseGroupsPerPage = 50;
+  const MIN_PER_PAGE = 2;
+
   while (entrantsPage <= entrantsTotalPages || standingsPage <= standingsTotalPages) {
-    const data = await gql<EventDetailsData>(
-      eventDetailsQuery,
-      {
-        eventId: eventSourceId,
-        entrantsPage,
-        entrantsPerPage: 50,
-        standingsPage,
-        standingsPerPage: 50,
-        phaseGroupsPerPage: 100,
-      },
-      { opName: `event ${eventSourceId} entrants=${entrantsPage} standings=${standingsPage}` },
-    ).catch(async (e: unknown) => {
-      if (e instanceof StartGgComplexityError) {
-        log.warn({ err: e.message }, "event details too complex; halving page sizes");
-        // Defer: re-throw for now, future enhancement to retry with smaller page sizes.
+    let data: EventDetailsData | null = null;
+    while (data == null) {
+      try {
+        data = await gql<EventDetailsData>(
+          eventDetailsQuery,
+          {
+            eventId: eventSourceId,
+            entrantsPage,
+            entrantsPerPage,
+            standingsPage,
+            standingsPerPage,
+            phaseGroupsPerPage,
+          },
+          {
+            opName: `event ${eventSourceId} e=${entrantsPage} s=${standingsPage} pp=${entrantsPerPage}/${standingsPerPage}/${phaseGroupsPerPage}`,
+          },
+        );
+      } catch (e: unknown) {
+        if (
+          e instanceof StartGgComplexityError &&
+          (entrantsPerPage > MIN_PER_PAGE || standingsPerPage > MIN_PER_PAGE || phaseGroupsPerPage > MIN_PER_PAGE)
+        ) {
+          const next = {
+            entrants: Math.max(MIN_PER_PAGE, Math.floor(entrantsPerPage / 2)),
+            standings: Math.max(MIN_PER_PAGE, Math.floor(standingsPerPage / 2)),
+            phaseGroups: Math.max(MIN_PER_PAGE, Math.floor(phaseGroupsPerPage / 2)),
+          };
+          log.warn(
+            {
+              eventSourceId,
+              from: { entrantsPerPage, standingsPerPage, phaseGroupsPerPage },
+              to: next,
+              actual: e.actual,
+            },
+            "event details too complex; halving page sizes and retrying",
+          );
+          entrantsPerPage = next.entrants;
+          standingsPerPage = next.standings;
+          phaseGroupsPerPage = next.phaseGroups;
+          continue;
+        }
+        throw e;
       }
-      throw e;
-    });
+    }
 
     const ev = data.event;
     if (!ev) break;
