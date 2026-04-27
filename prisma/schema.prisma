@@ -205,6 +205,10 @@ model Event {
   firstSeenAt     DateTime @default(now())
   lastSeenAt      DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  // Set when ingestRange has finished pulling everything for this event
+  // (entrants, standings, all sets across all phase groups). On re-runs we
+  // skip events with a non-null marker unless --force is passed.
+  ingestionCompletedAt DateTime?
 
   tournament Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   videogame  Videogame?  @relation(fields: [videogameId], references: [id])

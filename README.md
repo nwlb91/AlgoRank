@@ -74,10 +74,11 @@ Every entity carries `(source, sourceId)` plus the verbatim upstream payload as
 algorank introspect
     Fetch and cache the start.gg schema.
 
-algorank ingest range --since YYYY-MM-DD --until YYYY-MM-DD [--per-page N]
+algorank ingest range --since YYYY-MM-DD --until YYYY-MM-DD [--per-page N] [--force]
     Pull every Melee tournament whose startAt falls in the range and drill
     into events, phases, phase groups, entrants, sets, games, selections, and
-    standings.
+    standings. Events successfully drilled are marked complete; re-running
+    the same window skips them. Pass --force to re-process them anyway.
 ```
 
 Future commands (see PLAN.md §4.5): `ingest tournament <slug>`,

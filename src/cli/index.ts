@@ -31,7 +31,8 @@ ingest
   .requiredOption("--since <YYYY-MM-DD>", "inclusive lower bound (UTC)")
   .requiredOption("--until <YYYY-MM-DD>", "inclusive upper bound (UTC)")
   .option("--per-page <n>", "tournaments per page (default 25)", (v) => parseInt(v, 10))
-  .action(async (opts: { since: string; until: string; perPage?: number }) => {
+  .option("--force", "re-process events that were previously ingested fully", false)
+  .action(async (opts: { since: string; until: string; perPage?: number; force?: boolean }) => {
     const { ingestRange } = await import("../ingest/range.js");
     const { log } = await import("../log.js");
     const after = parseDateUtc(opts.since);
@@ -51,6 +52,7 @@ ingest
         afterDate: Math.floor(after / 1000),
         beforeDate: Math.floor(before / 1000),
         ...(opts.perPage !== undefined ? { perPage: opts.perPage } : {}),
+        ...(opts.force ? { force: true } : {}),
       });
     } catch (err) {
       log.error({ err: err instanceof Error ? err.message : String(err) }, "ingest range failed");

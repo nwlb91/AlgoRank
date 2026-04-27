@@ -30,10 +30,13 @@ interface RangeOpts {
   afterDate: number; // unix seconds, inclusive
   beforeDate: number; // unix seconds, inclusive
   perPage?: number;
+  /** Re-process events that were previously marked as fully ingested. */
+  force?: boolean;
 }
 
 export async function ingestRange(opts: RangeOpts): Promise<void> {
   const perPage = opts.perPage ?? 25;
+  const force = opts.force ?? false;
 
   const run = await prisma.ingestionRun.create({
     data: {
@@ -82,7 +85,7 @@ export async function ingestRange(opts: RangeOpts): Promise<void> {
         const tournamentId = await upsertTournament(t as Record<string, unknown>, Source.STARTGG);
         const events = (t.events ?? []) as Array<Record<string, unknown>>;
         for (const e of events) {
-          await ingestEvent(e, tournamentId, run.id);
+          await ingestEvent(e, tournamentId, run.id, force);
           totalTournaments++;
         }
       }
@@ -109,10 +112,25 @@ async function ingestEvent(
   e: Record<string, unknown>,
   tournamentId: number,
   runId: number,
+  force: boolean,
 ): Promise<void> {
   const eventDbId = await upsertEvent(e, tournamentId, Source.STARTGG);
   const eventSourceId = String(e.id);
   const scopeKey = `event:${Source.STARTGG}:${eventSourceId}`;
+
+  if (!force) {
+    const existing = await prisma.event.findUnique({
+      where: { id: eventDbId },
+      select: { ingestionCompletedAt: true },
+    });
+    if (existing?.ingestionCompletedAt) {
+      log.info(
+        { eventDbId, eventSourceId, name: e.name, completedAt: existing.ingestionCompletedAt },
+        "skipping (already fully ingested; pass --force to re-process)",
+      );
+      return;
+    }
+  }
 
   log.info({ runId, eventDbId, eventSourceId, name: e.name }, "ingesting event");
 
@@ -291,6 +309,13 @@ async function ingestEvent(
       update: { done: true, page: 1 },
     });
   }
+
+  // Made it through every phase group's sets without throwing — mark the
+  // event as fully ingested so the next run can skip it.
+  await prisma.event.update({
+    where: { id: eventDbId },
+    data: { ingestionCompletedAt: new Date() },
+  });
 }
 
 /**
