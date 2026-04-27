@@ -37,10 +37,21 @@ function unwrap(t: GraphQLOutputType): GraphQLOutputType {
   return cur;
 }
 
+// Fields that the schema exposes but require special token scopes to read.
+// start.gg returns 200 with the data field set to null AND a validation error
+// when the token lacks the scope. We exclude these from auto-generated
+// selections; users who need them can request a higher-scoped token and add
+// the field manually to a query.
+const SCOPE_RESTRICTED_FIELDS: Record<string, ReadonlySet<string>> = {
+  User: new Set(["email"]),
+  Participant: new Set(["email"]),
+};
+
 /**
  * Returns the list of scalar/enum field names on a given object type, with no
  * arguments. (Fields that take required arguments are skipped — they need
- * dedicated handling.) The result is sorted for stable query strings.
+ * dedicated handling.) Scope-restricted fields are excluded. The result is
+ * sorted for stable query strings.
  */
 export function scalarFieldsOf(typeName: string): string[] {
   const schema = loadSchema();
@@ -50,8 +61,10 @@ export function scalarFieldsOf(typeName: string): string[] {
   }
   const obj = t as GraphQLObjectType;
   const fields = obj.getFields();
+  const restricted = SCOPE_RESTRICTED_FIELDS[typeName];
   const out: string[] = [];
   for (const name of Object.keys(fields)) {
+    if (restricted?.has(name)) continue;
     const f = fields[name] as GraphQLField<unknown, unknown>;
     const requiresArgs = f.args.some((a) => isNonNullType(a.type) && a.defaultValue === undefined);
     if (requiresArgs) continue;

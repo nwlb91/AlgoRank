@@ -77,6 +77,25 @@ export async function gql<TData, TVars extends Variables = Variables>(
       );
       return data;
     } catch (raw) {
+      // start.gg sometimes returns 200 with both `data` and `errors`. The
+      // common case is scope-restricted fields (e.g. user.email) where the
+      // server omits the field but reports the lack of scope. graphql-request
+      // surfaces this as a thrown error; we treat it as success when the
+      // errors are *only* scope/permission issues.
+      const partial = (raw as { response?: { data?: unknown; errors?: Array<{ message?: string }> } })
+        .response;
+      if (partial?.data && partial.errors && partial.errors.length > 0) {
+        const allScope = partial.errors.every((e) =>
+          /Token missing the following scopes|not authorized|permission/i.test(e.message ?? ""),
+        );
+        if (allScope) {
+          log.debug(
+            { op: opName(opts), count: partial.errors.length },
+            "ignoring scope-restricted field errors; using returned data",
+          );
+          return partial.data as TData;
+        }
+      }
       const err = classifyError(raw);
       if (err instanceof StartGgComplexityError) {
         // Caller is responsible for shrinking page size on this. Surface it.
