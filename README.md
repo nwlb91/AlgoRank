@@ -1,12 +1,26 @@
 # AlgoRank
 
-A Super Smash Bros. Melee ranking project. This iteration is the **data
-foundation only**: a local-first ingester that pulls every Melee set from
-start.gg into a relational database, with a schema general enough to also hold
-hand-curated and other-source data later. The website and the actual ranking
-algorithm come later.
+A Super Smash Bros. Melee ranking project. The data foundation (a local-first
+ingester that pulls every Melee set from start.gg) and a small browser UI on
+top of it are wired up; the actual ranking algorithm comes later.
 
 See [`PLAN.md`](./PLAN.md) for the design rationale.
+
+## Local site
+
+After ingesting some data (see below), browse it in your browser:
+
+```bash
+npm run dev
+```
+
+Open http://localhost:3000. Pages:
+
+- `/` — tournament list with name + date-range filter.
+- `/tournaments/<slug>` — events in that tournament.
+- `/events/<id>` — entrants / standings / sets list.
+- `/sets/<id>` — slots, games, character + stage selections.
+- `/players/<id>` — every set this player has been in.
 
 ## Quickstart (local)
 

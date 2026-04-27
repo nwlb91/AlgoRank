@@ -11,7 +11,9 @@
     "algorank": "dist/cli/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
     "cli": "tsx src/cli/index.ts",
     "introspect": "tsx src/cli/index.ts introspect",
     "ingest:range": "tsx src/cli/index.ts ingest range",
@@ -30,8 +32,11 @@
     "dotenv": "^16.4.7",
     "graphql": "^16.9.0",
     "graphql-request": "^7.1.2",
+    "next": "^15.5.15",
     "pino": "^9.5.0",
     "pino-pretty": "^11.3.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -40,6 +45,8 @@
     "@graphql-codegen/typescript-graphql-request": "^6.2.0",
     "@graphql-codegen/typescript-operations": "^4.4.0",
     "@types/node": "^22.10.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
