@@ -521,8 +521,12 @@ async function upsertSetSlot(
     rawJson: stringify(slot),
     lastSeenAt: new Date(),
   } satisfies Prisma.SetSlotUncheckedCreateInput;
+  // Key on (setId, slotIndex) — that is the slot's true identity. start.gg
+  // sometimes hands out new slot.id strings for the same slot on re-fetches,
+  // which would trip the (setId, slotIndex) unique constraint if we keyed
+  // upsert on externalKey.
   await tx.setSlot.upsert({
-    where: { externalKey: key },
+    where: { setId_slotIndex: { setId, slotIndex } },
     create: data,
     update: data,
   });
@@ -554,8 +558,11 @@ async function upsertGame(
     rawJson: stringify(g),
     lastSeenAt: new Date(),
   } satisfies Prisma.GameUncheckedCreateInput;
+  // Key on (setId, orderNum) — start.gg has been observed to issue different
+  // game ids for the same (set, gameNumber) on re-fetch, so keying on
+  // externalKey trips the (setId, orderNum) unique constraint.
   const row = await tx.game.upsert({
-    where: { externalKey: key },
+    where: { setId_orderNum: { setId, orderNum: data.orderNum } },
     create: data,
     update: data,
     select: { id: true },
