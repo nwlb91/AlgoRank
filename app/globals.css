@@ -221,3 +221,89 @@ ol.placements li {
 .game .side { display: flex; flex-direction: column; gap: 2px; }
 .game .side .picks { color: var(--fg-dim); font-size: 12px; }
 .game .side.win { color: var(--winner); font-weight: 600; }
+
+.bracket-section { margin-top: 24px; }
+.bracket-section h3 { margin-top: 0; }
+.bracket {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+}
+.bracket-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+  flex: 0 0 auto;
+}
+.bracket-col h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.set-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.set-card a.set-card-link { color: var(--fg); text-decoration: none; }
+.set-card a.set-card-link:hover .set-card-id { text-decoration: underline; }
+.set-card .set-card-id {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--fg-dim);
+  letter-spacing: 0.3px;
+}
+.set-card .slot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+.set-card .slot:last-of-type { border-bottom: none; }
+.set-card .slot .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-card .slot .score { font-family: ui-monospace, monospace; color: var(--fg-dim); }
+.set-card .slot.winner .name { color: var(--winner); font-weight: 600; }
+.set-card .slot.winner .score { color: var(--winner); }
+.set-card .slot.loser .name { color: var(--fg-dim); }
+.set-card .slot.bye .name { color: var(--fg-dim); font-style: italic; }
+.set-card .meta {
+  margin-top: 6px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.set-card .meta a { color: var(--fg-dim); text-decoration: underline dotted; }
+.set-card .meta a:hover { color: var(--accent); }
+
+.bracket-empty {
+  padding: 20px;
+  color: var(--fg-dim);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.phase-group-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.phase-group-list a {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  text-decoration: none;
+}
+.phase-group-list a:hover { border-color: var(--accent); }
+.phase-group-list a .pg-meta { color: var(--fg-dim); margin-left: 6px; }

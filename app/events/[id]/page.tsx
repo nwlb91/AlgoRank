@@ -38,7 +38,17 @@ export default async function EventPage({
 
   const setsPage = Math.max(1, parseInt(sp.setsPage ?? "1", 10) || 1);
 
-  const [standings, totalSets, sets] = await Promise.all([
+  const [phases, standings, totalSets, sets] = await Promise.all([
+    prisma.phase.findMany({
+      where: { eventId: id },
+      orderBy: [{ phaseOrder: "asc" }, { id: "asc" }],
+      include: {
+        phaseGroups: {
+          orderBy: [{ displayIdentifier: "asc" }, { id: "asc" }],
+          include: { _count: { select: { sets: true } } },
+        },
+      },
+    }),
     prisma.standing.findMany({
       where: { eventId: id, phaseGroupId: null },
       orderBy: [{ placement: "asc" }],
@@ -95,6 +105,32 @@ export default async function EventPage({
           <div><span className="label">Source: </span><span className="mono">{event.source}:{event.sourceId}</span></div>
         </div>
       </div>
+
+      <h3>Brackets</h3>
+      {phases.length === 0 ? (
+        <div className="empty">No phases ingested for this event.</div>
+      ) : (
+        phases.map((ph) => (
+          <div key={ph.id} className="card" style={{ paddingBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+              <strong>{ph.name ?? `Phase ${ph.phaseOrder ?? ph.id}`}</strong>
+              <span className="muted">{ph.bracketType ?? ""}</span>
+            </div>
+            {ph.phaseGroups.length === 0 ? (
+              <div className="muted">No phase groups recorded.</div>
+            ) : (
+              <div className="phase-group-list">
+                {ph.phaseGroups.map((pg) => (
+                  <Link key={pg.id} href={`/phase-groups/${pg.id}`}>
+                    {pg.displayIdentifier ?? `Group ${pg.id}`}
+                    <span className="pg-meta">{pg._count.sets} sets</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        ))
+      )}
 
       <h3>Top {Math.min(32, standings.length)} placements</h3>
       {standings.length === 0 ? (
