@@ -211,17 +211,31 @@ async function ingestEvent(
     update: { done: true, page: 1 },
   });
 
-  // Now sets per phase group.
+  // Now sets per phase group. Sets queries are the heaviest (slots × games ×
+  // selections × character), so they hit the 1000-object cap most often.
+  // We start optimistic and halve perPage on each StartGgComplexityError,
+  // remembering the largest page size that worked for subsequent pages.
   const setsQuery = buildPhaseGroupSetsQuery();
+  const SETS_INITIAL_PER_PAGE = 25;
+  const SETS_MIN_PER_PAGE = 2;
   for (const pgSourceId of phaseGroupSourceIds) {
     const phaseGroupDbId = phaseGroupIdByExternal.get(pgSourceId) ?? null;
     let page = 1;
     let totalPages = 1;
+    let perPage = SETS_INITIAL_PER_PAGE;
     do {
-      const data = await gql<PhaseGroupSetsData>(
-        setsQuery,
-        { phaseGroupId: pgSourceId, page, perPage: 30 },
-        { opName: `pg ${pgSourceId} sets page=${page}` },
+      const data = await fetchWithShrink(
+        (pp) =>
+          gql<PhaseGroupSetsData>(
+            setsQuery,
+            { phaseGroupId: pgSourceId, page, perPage: pp },
+            { opName: `pg ${pgSourceId} sets page=${page} perPage=${pp}` },
+          ),
+        perPage,
+        SETS_MIN_PER_PAGE,
+        (newPerPage) => {
+          perPage = newPerPage;
+        },
       );
       totalPages = data.phaseGroup?.sets?.pageInfo?.totalPages ?? 1;
       for (const s of data.phaseGroup?.sets?.nodes ?? []) {
@@ -242,6 +256,37 @@ async function ingestEvent(
       create: { runId, scopeKey, stage: `sets:${pgSourceId}`, page: 1, done: true },
       update: { done: true, page: 1 },
     });
+  }
+}
+
+/**
+ * Run a fetch that takes a perPage. If the server reports the query was too
+ * complex, halve perPage and retry. Calls onShrink with the working perPage so
+ * the caller can remember it for subsequent pages.
+ */
+async function fetchWithShrink<T>(
+  doFetch: (perPage: number) => Promise<T>,
+  initialPerPage: number,
+  minPerPage: number,
+  onShrink: (newPerPage: number) => void,
+): Promise<T> {
+  let perPage = initialPerPage;
+  while (true) {
+    try {
+      return await doFetch(perPage);
+    } catch (e) {
+      if (e instanceof StartGgComplexityError && perPage > minPerPage) {
+        const next = Math.max(minPerPage, Math.floor(perPage / 2));
+        log.warn(
+          { from: perPage, to: next, actual: e.actual },
+          "complexity too high, retrying with smaller page size",
+        );
+        perPage = next;
+        onShrink(perPage);
+        continue;
+      }
+      throw e;
+    }
   }
 }
 
