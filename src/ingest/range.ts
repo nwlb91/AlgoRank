@@ -58,30 +58,65 @@ export async function ingestRange(opts: RangeOpts): Promise<void> {
 
     const tournamentsQuery = buildTournamentsByDateQuery();
 
-    let page = 1;
-    let totalPages = 1;
+    // start.gg refuses any tournaments query that would return entries past
+    // the 10,000th — so for windows wider than ~10K results, page-index
+    // pagination is unworkable. Instead we cursor-paginate by `startAt`:
+    // each iteration asks for the first page of tournaments with
+    // `afterDate >= cursor`, processes them, then advances the cursor to
+    // the maximum `startAt` we just saw. A `seenSourceIds` set dedupes
+    // tournaments that tie on `startAt` at the cursor boundary.
+    let cursor = opts.afterDate;
     let totalTournaments = 0;
-    do {
+    let pageCount = 0;
+    const seenSourceIds = new Set<string>();
+    const SAFETY_MAX_PAGES = 5_000;
+
+    while (true) {
+      pageCount++;
+      if (pageCount > SAFETY_MAX_PAGES) {
+        throw new Error(
+          `discovery aborted after ${SAFETY_MAX_PAGES} pages — runaway cursor?`,
+        );
+      }
+
       const data = await gql<TournamentsByDateData>(
         tournamentsQuery,
         {
           videogameIds: [MELEE_VIDEOGAME_ID],
-          afterDate: opts.afterDate,
+          afterDate: cursor,
           beforeDate: opts.beforeDate,
-          page,
+          page: 1,
           perPage,
         },
-        { opName: `tournaments page=${page}` },
+        { opName: `tournaments cursor=${new Date(cursor * 1000).toISOString().slice(0, 10)} (#${pageCount})` },
       );
-      totalPages = data.tournaments?.pageInfo?.totalPages ?? 1;
       const nodes = data.tournaments?.nodes ?? [];
+      const total = data.tournaments?.pageInfo?.total;
       log.info(
-        { runId: run.id, page, totalPages, count: nodes.length, total: data.tournaments?.pageInfo?.total },
+        {
+          runId: run.id,
+          pageCount,
+          cursor: new Date(cursor * 1000).toISOString(),
+          received: nodes.length,
+          totalRemaining: total,
+          seenSoFar: seenSourceIds.size,
+        },
         "tournaments page",
       );
 
+      if (nodes.length === 0) break;
+
+      let advanced = false;
+      let maxStartAtThisPage = cursor;
       for (const t of nodes) {
         if (!t) continue;
+        const sourceId = String(t.id);
+        const startAt = typeof t.startAt === "number" ? t.startAt : Number(t.startAt) || 0;
+        if (startAt > maxStartAtThisPage) maxStartAtThisPage = startAt;
+        if (seenSourceIds.has(sourceId)) continue;
+        seenSourceIds.add(sourceId);
+        advanced = true;
+
         const tournamentId = await upsertTournament(t as Record<string, unknown>, Source.STARTGG);
         const events = (t.events ?? []) as Array<Record<string, unknown>>;
         for (const e of events) {
@@ -90,8 +125,19 @@ export async function ingestRange(opts: RangeOpts): Promise<void> {
         }
       }
 
-      page++;
-    } while (page <= totalPages);
+      if (!advanced) {
+        // Every tournament on this page was already seen — no progress.
+        // Either we've exhausted the window or we're stuck in a tie cluster
+        // that won't dedupe; either way, time to stop.
+        break;
+      }
+
+      // Advance the cursor. If startAts didn't move (all ties), pushing the
+      // cursor forward by 1 second prevents an infinite loop while the
+      // seen-set deduplicates on the next page.
+      cursor = maxStartAtThisPage > cursor ? maxStartAtThisPage : cursor + 1;
+      if (cursor > opts.beforeDate) break;
+    }
 
     await prisma.ingestionRun.update({
       where: { id: run.id },

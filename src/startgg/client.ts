@@ -35,8 +35,20 @@ export class StartGgComplexityError extends Error {
     this.actual = actual;
   }
 }
+/**
+ * Hard pagination cap — start.gg refuses any query that would return entries
+ * past the 10,000th overall. Not retriable; the caller has to change the
+ * query (e.g. shrink the window or cursor-paginate by a different field).
+ */
+export class StartGgPaginationCapError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StartGgPaginationCapError";
+  }
+}
 
 const COMPLEXITY_RE = /A maximum of 1000 objects.+actual:\s*(\d+)/i;
+const PAGINATION_CAP_RE = /Cannot query more than the 10,?000th entry/i;
 
 function classifyError(err: unknown): Error {
   // graphql-request throws ClientError with .response.errors and .response.status
@@ -49,6 +61,7 @@ function classifyError(err: unknown): Error {
   if (/Rate limit exceeded/i.test(text)) return new StartGgRateLimitError();
   const m = COMPLEXITY_RE.exec(text);
   if (m && m[1]) return new StartGgComplexityError(text, Number(m[1]));
+  if (PAGINATION_CAP_RE.test(text)) return new StartGgPaginationCapError(text);
   if (e.response?.status === 429) return new StartGgRateLimitError();
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -99,6 +112,10 @@ export async function gql<TData, TVars extends Variables = Variables>(
       const err = classifyError(raw);
       if (err instanceof StartGgComplexityError) {
         // Caller is responsible for shrinking page size on this. Surface it.
+        throw err;
+      }
+      if (err instanceof StartGgPaginationCapError) {
+        // Hard upstream limit; retrying the same query never succeeds.
         throw err;
       }
       const isRateLimit = err instanceof StartGgRateLimitError;
