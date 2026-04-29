@@ -90,21 +90,25 @@ export async function gql<TData, TVars extends Variables = Variables>(
       );
       return data;
     } catch (raw) {
-      // start.gg sometimes returns 200 with both `data` and `errors`. The
-      // common case is scope-restricted fields (e.g. user.email) where the
-      // server omits the field but reports the lack of scope. graphql-request
-      // surfaces this as a thrown error; we treat it as success when the
-      // errors are *only* scope/permission issues.
+      // start.gg sometimes returns 200 with both `data` and `errors`. Two
+      // shapes show up: (1) scope-restricted fields (e.g. user.email) where the
+      // server omits the field and reports the missing scope, and (2) opaque
+      // "An unknown error has occurred" failures on a single field (observed
+      // on PhaseGroup.startAt for older data). In both cases the rest of the
+      // payload is intact and rawJson preserves whatever did come back, so we
+      // accept the data and continue.
       const partial = (raw as { response?: { data?: unknown; errors?: Array<{ message?: string }> } })
         .response;
       if (partial?.data && partial.errors && partial.errors.length > 0) {
-        const allScope = partial.errors.every((e) =>
-          /Token missing the following scopes|not authorized|permission/i.test(e.message ?? ""),
+        const allTolerable = partial.errors.every((e) =>
+          /Token missing the following scopes|not authorized|permission|An unknown error has occurred/i.test(
+            e.message ?? "",
+          ),
         );
-        if (allScope) {
-          log.debug(
+        if (allTolerable) {
+          log.warn(
             { op: opName(opts), count: partial.errors.length },
-            "ignoring scope-restricted field errors; using returned data",
+            "ignoring partial-success field errors; using returned data",
           );
           return partial.data as TData;
         }
