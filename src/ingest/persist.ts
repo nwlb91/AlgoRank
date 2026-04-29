@@ -17,9 +17,17 @@ type Tx = Pick<PrismaClient, "videogame" | "tournament" | "event" | "phase" | "p
 
 function epochToDate(v: unknown): Date | null {
   if (v == null) return null;
-  if (typeof v === "number") return new Date(v * 1000);
-  if (typeof v === "string" && /^\d+$/.test(v)) return new Date(Number(v) * 1000);
-  return null;
+  let secs: number | null = null;
+  if (typeof v === "number") secs = v;
+  else if (typeof v === "string" && /^-?\d+$/.test(v)) secs = Number(v);
+  if (secs == null) return null;
+  const d = new Date(secs * 1000);
+  // start.gg occasionally returns nonsense epoch values (e.g. huge negatives)
+  // that Prisma's DateTime serializer rejects. Drop anything outside a sensible
+  // window; rawJson preserves the original.
+  const year = d.getUTCFullYear();
+  if (Number.isNaN(year) || year < 1990 || year > 2100) return null;
+  return d;
 }
 
 function asString(v: unknown): string | null {
