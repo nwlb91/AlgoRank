@@ -125,7 +125,7 @@ export async function gql<TData, TVars extends Variables = Variables>(
       const isRateLimit = err instanceof StartGgRateLimitError;
       const isTransient =
         isRateLimit ||
-        /ETIMEDOUT|ECONNRESET|EAI_AGAIN|fetch failed|socket hang up|network|5\d\d/i.test(
+        /ETIMEDOUT|ECONNRESET|EAI_AGAIN|fetch failed|socket hang up|network|terminated|5\d\d/i.test(
           err.message,
         );
       if (!isTransient || attempt >= maxAttempts) {
