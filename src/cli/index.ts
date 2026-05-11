@@ -60,6 +60,33 @@ ingest
     }
   });
 
+const parrygg = program
+  .command("parrygg")
+  .description("Pull data from parry.gg into the local database");
+
+parrygg
+  .command("discover")
+  .description(
+    "Dry-run: walk parry.gg tournaments, find Melee's game slug, log volume. No DB writes.",
+  )
+  .option("--page-size <n>", "tournaments per page (default 100)", (v) => parseInt(v, 10))
+  .option("--max-pages <n>", "stop after this many pages (default 10000)", (v) => parseInt(v, 10))
+  .option("--sample-size <n>", "Melee tournaments to list at end (default 10)", (v) => parseInt(v, 10))
+  .action(async (opts: { pageSize?: number; maxPages?: number; sampleSize?: number }) => {
+    const { discover } = await import("../parrygg/discover.js");
+    const { log } = await import("../log.js");
+    try {
+      await discover({
+        ...(opts.pageSize !== undefined ? { pageSize: opts.pageSize } : {}),
+        ...(opts.maxPages !== undefined ? { maxPages: opts.maxPages } : {}),
+        ...(opts.sampleSize !== undefined ? { sampleSize: opts.sampleSize } : {}),
+      });
+    } catch (err) {
+      log.error({ err: err instanceof Error ? err.message : String(err) }, "parrygg discover failed");
+      process.exitCode = 1;
+    }
+  });
+
 function parseDateUtc(s: string, opts: { endOfDay?: boolean } = {}): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return Number.NaN;
   const t = Date.parse(`${s}T${opts.endOfDay ? "23:59:59" : "00:00:00"}Z`);
