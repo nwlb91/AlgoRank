@@ -15,6 +15,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <h1><Link href="/">AlgoRank</Link></h1>
           <nav>
             <Link href="/">Tournaments</Link>
+            <Link href="/periods">Periods</Link>
+            <Link href="/curation">Curation</Link>
           </nav>
         </header>
         <main>{children}</main>

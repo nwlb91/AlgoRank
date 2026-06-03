@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import {
   eventTypeLabel,
@@ -8,8 +9,32 @@ import {
   setStateLabel,
   tagWithPrefix,
 } from "@/lib/format";
+import { resolveEventEligibility } from "@/lib/curation/eligibility";
+import { getCurrentPeriodId } from "@/lib/curation/currentPeriod";
 
 const SETS_PAGE_SIZE = 100;
+
+async function setEligibilityOverrideAction(formData: FormData): Promise<void> {
+  "use server";
+  const eventId = parseInt(String(formData.get("eventId") ?? ""), 10);
+  const action = String(formData.get("action") ?? ""); // "force-eligible" | "force-ineligible" | "clear"
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!Number.isFinite(eventId)) return;
+
+  if (action === "clear") {
+    await prisma.eventEligibilityOverride.deleteMany({ where: { eventId } });
+  } else {
+    if (!reason) throw new Error("reason is required");
+    const eligible = action === "force-eligible";
+    const periodId = await getCurrentPeriodId();
+    await prisma.eventEligibilityOverride.upsert({
+      where: { eventId },
+      create: { eventId, eligible, reason, createdInPeriodId: periodId },
+      update: { eligible, reason },
+    });
+  }
+  revalidatePath(`/events/${eventId}`);
+}
 
 interface SearchParams {
   setsPage?: string;
@@ -32,9 +57,12 @@ export default async function EventPage({
     include: {
       tournament: true,
       videogame: true,
+      eligibilityOverride: true,
     },
   });
   if (!event) notFound();
+
+  const eligibility = await resolveEventEligibility(event.id, event.name);
 
   const setsPage = Math.max(1, parseInt(sp.setsPage ?? "1", 10) || 1);
 
@@ -104,6 +132,44 @@ export default async function EventPage({
           <div><span className="label">Date: </span>{formatDate(event.startAt)}</div>
           <div><span className="label">Source: </span><span className="mono">{event.source}:{event.sourceId}</span></div>
         </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <strong>
+            Eligibility:&nbsp;
+            {eligibility.eligible ? (
+              <span style={{ color: "var(--winner)" }}>eligible</span>
+            ) : (
+              <span style={{ color: "var(--loser)" }}>ineligible</span>
+            )}
+          </strong>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {eligibility.kind === "override" && <>per-event override</>}
+            {eligibility.kind === "name-rule" && <>name rule: <code>{eligibility.normalizedName}</code></>}
+            {eligibility.kind === "default-deny" && <>no rule for <code>{eligibility.normalizedName}</code> (default-deny)</>}
+          </span>
+        </div>
+        {eligibility.kind === "override" && (
+          <p className="muted" style={{ marginTop: 6, marginBottom: 0, fontSize: 12 }}>
+            Reason: {event.eligibilityOverride?.reason}
+          </p>
+        )}
+        <form action={setEligibilityOverrideAction} style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input type="hidden" name="eventId" value={event.id} />
+          <input
+            type="text"
+            name="reason"
+            placeholder="reason (required when forcing)"
+            defaultValue={event.eligibilityOverride?.reason ?? ""}
+            style={{ flex: 1, minWidth: 200 }}
+          />
+          <button type="submit" name="action" value="force-eligible" className="link-button">force eligible</button>
+          <button type="submit" name="action" value="force-ineligible" className="link-button">force ineligible</button>
+          {event.eligibilityOverride && (
+            <button type="submit" name="action" value="clear" className="link-button">clear override</button>
+          )}
+        </form>
       </div>
 
       <h3>Brackets</h3>

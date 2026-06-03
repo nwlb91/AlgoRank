@@ -289,3 +289,52 @@ AlgoRank/
 - **Doubles team identity:** is a "team" of {Mango, Hungrybox} at one tournament the same as the same pair at another? We will key on `(participant.userId set)` when both users are known and otherwise treat each entry as a fresh team.
 - **DQs and forfeits:** captured via `Set.state` and `Entrant.isDisqualified`, but we should decide whether DQ'd sets count for ranking. Defer to M5.
 - **Race / non-bracket formats:** the `event-standings.md` example shows phaseGroup-level metadata (e.g. kill counts). We persist `Standing.metadata` as JSON to handle these losslessly.
+
+## 9. Curation layer
+
+### 9.1 Why this exists
+
+Raw ingested data is not directly rankable. Real-world problems we need to express:
+
+- Many "Melee Singles" sub-events ought to count; many similarly-named exhibitions, side events, or low-stakes weeklies ought not.
+- The same human plays under multiple `Player` rows (different tags, different prefixes, sometimes with a start.gg `User` and sometimes not). Without resolving that, "player X's set history" is incomplete.
+- Set results are occasionally reported wrong; we want to override the recorded result without losing the original.
+
+The chosen approach: ranking work happens in small **periods** (yearly, summer, etc.), but the curation decisions made while preparing one period are **global facts**, not period-scoped. Doing 2024 + 2025 yields 2024–25 for free.
+
+### 9.2 Storage model
+
+Three principles, applied to every curation table:
+
+1. **Decisions are global.** A `createdInPeriodId` column tags the period the decision originated in (provenance), but the effect of the decision is unconditional.
+2. **Decisions are reversible.** Curation never mutates the source-of-truth row (Event, Set, Player). Override rows store the change; the original stays intact.
+3. **Effective state is derived.** Eligibility / result / canonical identity is computed at query time from override rows. No backfill needed when a rule changes.
+
+Tables (Phase 1 — set overrides, event eligibility, and ranking periods landed in this iteration; player merges deferred):
+
+- **`RankingPeriod`** — `(name, kind: yearly|summer|custom, startAt, endAt, videogameId?, eventType?)`. Pure metadata; the lens.
+- **`RankingPeriodTournament`** — per-tournament include/exclude override of the period's date-window default. Without a row, scope is determined by the window; a row forces inclusion or exclusion.
+- **`EventNameRule`** — `(normalizedName UNIQUE, eligible, createdInPeriodId?, reason?)`. Default-deny; the global event-name whitelist. Normalization (`lib/curation/normalize.ts`) is lowercase + trim + collapse-whitespace, kept deliberately tight.
+- **`EventEligibilityOverride`** — `(eventId UNIQUE, eligible, reason, createdInPeriodId?)`. Per-event escape hatch; takes precedence over the name rule.
+- **`SetOverride`** — `(setId UNIQUE, kind: EXCLUDE|CORRECT_RESULT, reason, correctedWinnerEntrantId?, correctedDisplayScore?, createdInPeriodId?)`. One row per set; readers compute the effective result via `lib/curation/setResult.ts`.
+
+### 9.3 Workflow
+
+The web app's nav has **Periods** (CRUD + per-period tournament scope) and **Curation** (review queues). The current period is held in a cookie (`lib/curation/currentPeriod.ts`) so review queues are scoped without URL-param plumbing, and each Server Action tags decisions with `createdInPeriodId` automatically.
+
+Per-set and per-event override controls also live on the existing set / event detail pages — no separate "edit mode."
+
+### 9.4 What's intentionally deferred
+
+- **Player merges** — separate table (union-find over reversible merge assertions, materialized to a `canonicalPlayerId` column). Surfaced as a same-name pair review queue. Bootstrap problem: the "competitively relevant" filter for that queue depends on a ranking-independent proxy (peak placement at a large event, set-count threshold) so it isn't blocked by the ranking algorithm not existing yet.
+- **Per-period set/event exceptions** — if we ever need "exclude this set from 2025 only," add a periodId column to `SetOverride` and a resolver that prefers period-scoped rows. Not building until a real case demands it.
+- **Audit log of override changes** — only the current state is stored; if you change an override later, the prior reason is lost. Add an audit log if it becomes useful.
+
+### 9.5 Where it plugs into ranking (M5)
+
+The ranking pipeline reads:
+
+1. `tournamentsInPeriodWhere(period)` for tournament scope.
+2. Events filtered by `resolveEventEligibility(event)` returning `eligible=true`.
+3. Sets filtered to those events, with `effectiveSetResult(set, override)` applied; excluded sets dropped, corrected results substituted.
+4. Players grouped by `canonicalPlayerId` (once merges land).

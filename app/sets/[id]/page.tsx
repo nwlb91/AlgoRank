@@ -1,7 +1,74 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { setStateLabel, tagWithPrefix } from "@/lib/format";
+import { effectiveSetResult } from "@/lib/curation/setResult";
+import { getCurrentPeriodId } from "@/lib/curation/currentPeriod";
+
+async function setOverrideAction(formData: FormData): Promise<void> {
+  "use server";
+  const setId = parseInt(String(formData.get("setId") ?? ""), 10);
+  const action = String(formData.get("action") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim();
+  const correctedWinnerEntrantId = parseIntOrNull(String(formData.get("correctedWinnerEntrantId") ?? ""));
+  const correctedDisplayScore = String(formData.get("correctedDisplayScore") ?? "").trim() || null;
+  if (!Number.isFinite(setId)) return;
+
+  if (action === "clear") {
+    await prisma.setOverride.deleteMany({ where: { setId } });
+  } else if (action === "exclude") {
+    if (!reason) throw new Error("reason is required");
+    const periodId = await getCurrentPeriodId();
+    await prisma.setOverride.upsert({
+      where: { setId },
+      create: {
+        setId,
+        kind: "EXCLUDE",
+        reason,
+        correctedWinnerEntrantId: null,
+        correctedDisplayScore: null,
+        createdInPeriodId: periodId,
+      },
+      update: {
+        kind: "EXCLUDE",
+        reason,
+        correctedWinnerEntrantId: null,
+        correctedDisplayScore: null,
+      },
+    });
+  } else if (action === "correct") {
+    if (!reason) throw new Error("reason is required");
+    if (correctedWinnerEntrantId == null && !correctedDisplayScore) {
+      throw new Error("provide a corrected winner or display score");
+    }
+    const periodId = await getCurrentPeriodId();
+    await prisma.setOverride.upsert({
+      where: { setId },
+      create: {
+        setId,
+        kind: "CORRECT_RESULT",
+        reason,
+        correctedWinnerEntrantId,
+        correctedDisplayScore,
+        createdInPeriodId: periodId,
+      },
+      update: {
+        kind: "CORRECT_RESULT",
+        reason,
+        correctedWinnerEntrantId,
+        correctedDisplayScore,
+      },
+    });
+  }
+  revalidatePath(`/sets/${setId}`);
+}
+
+function parseIntOrNull(s: string): number | null {
+  if (!s) return null;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : null;
+}
 
 export default async function SetPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await params;
@@ -12,6 +79,7 @@ export default async function SetPage({ params }: { params: Promise<{ id: string
     where: { id },
     include: {
       event: { include: { tournament: true } },
+      override: { include: { correctedWinnerEntrant: true, createdInPeriod: true } },
       slots: {
         orderBy: { slotIndex: "asc" },
         include: {
@@ -35,6 +103,17 @@ export default async function SetPage({ params }: { params: Promise<{ id: string
 
   const slot1 = set.slots[0];
   const slot2 = set.slots[1];
+  const effective = effectiveSetResult(
+    { winnerEntrantId: set.winnerEntrantId, displayScore: set.displayScore },
+    set.override
+      ? {
+          kind: set.override.kind,
+          reason: set.override.reason,
+          correctedWinnerEntrantId: set.override.correctedWinnerEntrantId,
+          correctedDisplayScore: set.override.correctedDisplayScore,
+        }
+      : null,
+  );
 
   return (
     <>
@@ -55,13 +134,88 @@ export default async function SetPage({ params }: { params: Promise<{ id: string
           <div><span className="label">Players: </span>
             {renderSlotInline(slot1)} <span className="muted">vs</span> {renderSlotInline(slot2)}
           </div>
-          <div><span className="label">Score: </span><span className="mono">{set.displayScore ?? "—"}</span></div>
-          <div><span className="label">Winner: </span>{renderWinner(set.winnerEntrantId, set.slots)}</div>
+          <div><span className="label">Score: </span>
+            <span className="mono">{effective.displayScore ?? "—"}</span>
+            {set.override?.kind === "CORRECT_RESULT" && set.override.correctedDisplayScore && set.displayScore !== set.override.correctedDisplayScore && (
+              <span className="muted" style={{ marginLeft: 6 }}>
+                (was <span className="mono">{set.displayScore ?? "—"}</span>)
+              </span>
+            )}
+          </div>
+          <div><span className="label">Winner: </span>
+            {renderWinner(effective.winnerEntrantId, set.slots)}
+            {set.override?.kind === "CORRECT_RESULT" && set.override.correctedWinnerEntrantId != null && set.winnerEntrantId !== set.override.correctedWinnerEntrantId && (
+              <span className="muted" style={{ marginLeft: 6 }}>
+                (was {renderWinner(set.winnerEntrantId, set.slots)})
+              </span>
+            )}
+          </div>
           <div><span className="label">State: </span>{setStateLabel(set.state)}</div>
           <div><span className="label">Total games: </span>{set.totalGames ?? "—"}</div>
           <div><span className="label">VOD: </span>{set.vodUrl ? <a href={set.vodUrl} target="_blank" rel="noreferrer">link</a> : "—"}</div>
           <div><span className="label">Source: </span><span className="mono">{set.source}:{set.sourceId}</span></div>
         </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <strong>
+            Curation status:&nbsp;
+            {set.override?.kind === "EXCLUDE" ? (
+              <span style={{ color: "var(--loser)" }}>excluded</span>
+            ) : set.override?.kind === "CORRECT_RESULT" ? (
+              <span style={{ color: "var(--warn)" }}>result corrected</span>
+            ) : (
+              <span className="muted">no override</span>
+            )}
+          </strong>
+          {set.override?.createdInPeriod && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              from <Link href={`/periods/${set.override.createdInPeriod.id}`}>{set.override.createdInPeriod.name}</Link>
+            </span>
+          )}
+        </div>
+        {set.override && (
+          <p className="muted" style={{ marginTop: 6, marginBottom: 0, fontSize: 12 }}>
+            Reason: {set.override.reason}
+          </p>
+        )}
+        <form action={setOverrideAction} style={{ marginTop: 10, display: "grid", gap: 8 }}>
+          <input type="hidden" name="setId" value={set.id} />
+          <input
+            type="text"
+            name="reason"
+            placeholder="reason (required for exclude / correct)"
+            defaultValue={set.override?.reason ?? ""}
+          />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 12 }}>Correct to:</span>
+            <select name="correctedWinnerEntrantId" defaultValue={String(set.override?.correctedWinnerEntrantId ?? "")} style={{ minWidth: 180 }}>
+              <option value="">— winner unchanged —</option>
+              {set.slots.map((s) =>
+                s.entrant ? (
+                  <option key={s.entrantId ?? -1} value={s.entrantId ?? ""}>
+                    {s.entrant.name ?? `entrant ${s.entrantId}`}
+                  </option>
+                ) : null,
+              )}
+            </select>
+            <input
+              type="text"
+              name="correctedDisplayScore"
+              placeholder="score (e.g. 3 - 1)"
+              defaultValue={set.override?.correctedDisplayScore ?? ""}
+              style={{ width: 120 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="submit" name="action" value="exclude" className="link-button">exclude set</button>
+            <button type="submit" name="action" value="correct" className="link-button">correct result</button>
+            {set.override && (
+              <button type="submit" name="action" value="clear" className="link-button">clear override</button>
+            )}
+          </div>
+        </form>
       </div>
 
       <h3>Games</h3>

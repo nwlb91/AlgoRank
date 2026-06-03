@@ -67,10 +67,24 @@ npm run lint                             # = tsc --noEmit (covers both CLI and N
 
 ### Web UI (`app/`)
 
-- App Router server components only — no client-side state, no API routes.
+- App Router server components only. Server Actions handle writes (curation layer); otherwise no client-side state, no API routes.
 - Pages are intentionally information-dense and minimally styled. Plain CSS in `app/globals.css`, dark theme.
 - Server components import Prisma from `lib/db.ts` (singleton cached on `globalThis` to survive Next dev hot reload).
 - Bracket viz (`app/phase-groups/[id]/page.tsx`) renders columns by `Set.round` (positive = winners side, negative = losers side); within each column, sets are sorted by natural-numeric order on `identifier`. **No SVG connecting lines** — prereq pointer labels carry the same correctness signal with less rendering work.
+
+### Curation layer (`lib/curation/` + `app/curation/`, `app/periods/`)
+
+See PLAN.md §9. Three principles, applied uniformly:
+
+1. **Decisions are global facts** — a name whitelisted while doing 2025 also counts for 2024. `RankingPeriod` is a workflow lens, not a container.
+2. **Decisions are reversible** — curation never mutates `Event`, `Set`, `Player`. Override rows store the change; the original stays intact.
+3. **Effective state is derived** — `resolveEventEligibility(event)` and `effectiveSetResult(set, override)` are computed at read time. No backfill when a rule changes.
+
+Curation tables: `RankingPeriod`, `RankingPeriodTournament` (per-tournament include/exclude override of date-window default), `EventNameRule` (default-deny whitelist on `normalizedName`), `EventEligibilityOverride` (per-event), `SetOverride` (per-set; `kind = EXCLUDE | CORRECT_RESULT`).
+
+The "current period" is held in a cookie (`lib/curation/currentPeriod.ts`). Server Actions read it and stamp `createdInPeriodId` automatically — don't pass period IDs through URL params for review queues.
+
+**Player merges are deliberately not built yet.** When you add them, model as union-find over reversible `PlayerMergeAssertion` rows materialized to `Player.canonicalPlayerId`, never as a destructive merge.
 
 ## Working preferences
 

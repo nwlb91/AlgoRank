@@ -175,7 +175,8 @@ model Tournament {
   lastSeenAt             DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  events Event[]
+  events             Event[]
+  periodInclusions   RankingPeriodTournament[]
 
   @@unique([source, sourceId])
   @@index([slug])
@@ -210,17 +211,19 @@ model Event {
   // skip events with a non-null marker unless --force is passed.
   ingestionCompletedAt DateTime?
 
-  tournament Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  videogame  Videogame?  @relation(fields: [videogameId], references: [id])
-  phases     Phase[]
-  entrants   Entrant[]
-  sets       Set[]
-  standings  Standing[]
+  tournament           Tournament                 @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  videogame            Videogame?                 @relation(fields: [videogameId], references: [id])
+  phases               Phase[]
+  entrants             Entrant[]
+  sets                 Set[]
+  standings            Standing[]
+  eligibilityOverride  EventEligibilityOverride?
 
   @@unique([source, sourceId])
   @@index([tournamentId])
   @@index([videogameId])
   @@index([slug])
+  @@index([name])
 }
 
 model Phase {
@@ -292,12 +295,13 @@ model Entrant {
   lastSeenAt      DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  participants Participant[]
-  slots        SetSlot[]
-  games        Game[]
-  selections   GameSelection[]
-  standings    Standing[]
+  event                      Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participants               Participant[]
+  slots                      SetSlot[]
+  games                      Game[]
+  selections                 GameSelection[]
+  standings                  Standing[]
+  setOverridesAsCorrectedWin SetOverride[]
 
   @@unique([source, sourceId])
   @@index([eventId])
@@ -363,10 +367,11 @@ model Set {
   lastSeenAt        DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  phaseGroup PhaseGroup? @relation(fields: [phaseGroupId], references: [id])
+  event      Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  phaseGroup PhaseGroup?  @relation(fields: [phaseGroupId], references: [id])
   slots      SetSlot[]
   games      Game[]
+  override   SetOverride?
 
   @@unique([source, sourceId])
   @@index([eventId])
@@ -532,4 +537,119 @@ model IngestionCheckpoint {
 
   @@unique([runId, scopeKey, stage])
   @@index([runId])
+}
+
+// ----------------------------------------------------------------------------
+// Curation layer
+//
+// See PLAN.md §9. Three principles:
+//   1. All curation decisions are *global facts*, not period-scoped. A merge
+//      or exclusion made while doing the 2025 ranking still applies when
+//      computing 2024–25. `createdInPeriodId` is provenance only.
+//   2. Decisions are reversible — we never mutate the source-of-truth row
+//      (Event, Set, etc.). Override rows store the change; the original
+//      stays intact and is shown as "result was X, overwritten to Y."
+//   3. Eligibility / effective result is *derived* at query time from the
+//      override rows. No backfill needed when a rule changes.
+//
+// Player merges are NOT in this slice — that's the next iteration.
+// ----------------------------------------------------------------------------
+
+model RankingPeriod {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique          // e.g. "2025 Yearly", "2024 Summer"
+  kind        String                    // "yearly" | "summer" | "custom"
+  startAt     DateTime                  // inclusive
+  endAt       DateTime                  // inclusive
+  videogameId Int?                      // null = game-agnostic (rare)
+  eventType   Int?                      // 1 = singles, 5 = doubles, null = any
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tournamentInclusions      RankingPeriodTournament[]
+  eventNameRules            EventNameRule[]
+  eventEligibilityOverrides EventEligibilityOverride[]
+  setOverrides              SetOverride[]
+
+  @@index([startAt, endAt])
+}
+
+// Per-tournament override of the period's date-window default. Without a row,
+// a tournament is in scope iff event.startAt ∈ [period.startAt, period.endAt]
+// (and game / type match). A row forces inclusion or exclusion regardless of
+// where the tournament falls relative to the window.
+model RankingPeriodTournament {
+  id           Int      @id @default(autoincrement())
+  periodId     Int
+  tournamentId Int
+  included     Boolean                    // true = force in; false = force out
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  period     RankingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  tournament Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, tournamentId])
+  @@index([periodId])
+  @@index([tournamentId])
+}
+
+// Default-deny event eligibility. Events whose normalized name is not in this
+// table are ineligible. `normalizedName` is name.toLowerCase().trim() with
+// internal whitespace collapsed — kept deliberately conservative so the
+// frequency-sorted review queue stays small.
+model EventNameRule {
+  id                 Int      @id @default(autoincrement())
+  normalizedName     String   @unique
+  eligible           Boolean                  // false = explicit blacklist
+  reason             String?
+  createdInPeriodId  Int?                     // provenance, decision is global
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  createdInPeriod RankingPeriod? @relation(fields: [createdInPeriodId], references: [id])
+
+  @@index([eligible])
+}
+
+// Per-event eligibility override — escape hatch for cases the name rule gets
+// wrong (e.g. a "Melee Singles" event that was actually an exhibition, or a
+// custom-named event that should be eligible despite the name rule).
+model EventEligibilityOverride {
+  id                 Int      @id @default(autoincrement())
+  eventId            Int      @unique
+  eligible           Boolean
+  reason             String
+  createdInPeriodId  Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  event           Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdInPeriod RankingPeriod? @relation(fields: [createdInPeriodId], references: [id])
+}
+
+// Per-set override. One row per set; the `kind` distinguishes pure exclusion
+// from a result correction. For corrections, `correctedWinnerEntrantId` and
+// `correctedDisplayScore` carry the corrected values; readers compute the
+// "effective" result via lib/curation/setResult.ts.
+//
+// The original Set row is never mutated — the bracket viz and any future
+// audit view can show "result was X, overwritten to Y because Z."
+model SetOverride {
+  id                          Int      @id @default(autoincrement())
+  setId                       Int      @unique
+  kind                        String                  // "EXCLUDE" | "CORRECT_RESULT"
+  reason                      String
+  correctedWinnerEntrantId    Int?                    // CORRECT_RESULT only
+  correctedDisplayScore       String?                 // CORRECT_RESULT only
+  createdInPeriodId           Int?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  set                     Set            @relation(fields: [setId], references: [id], onDelete: Cascade)
+  correctedWinnerEntrant  Entrant?       @relation(fields: [correctedWinnerEntrantId], references: [id])
+  createdInPeriod         RankingPeriod? @relation(fields: [createdInPeriodId], references: [id])
+
+  @@index([kind])
 }
