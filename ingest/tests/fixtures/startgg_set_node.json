@@ -1,0 +1,80 @@
+{
+  "id": 60086798,
+  "identifier": "K",
+  "round": -4,
+  "fullRoundText": "Losers Quarter-Final",
+  "state": 3,
+  "startedAt": 1565476500,
+  "completedAt": 1565477520,
+  "createdAt": 1565400000,
+  "updatedAt": 1565477525,
+  "winnerId": 4863001,
+  "totalGames": 5,
+  "setGamesType": 1,
+  "displayScore": "Mang0 3 - Zain 1",
+  "lPlacement": 5,
+  "wPlacement": 4,
+  "hasPlaceholder": false,
+  "vodUrl": "https://twitch.tv/videos/123456",
+  "station": {"id": 99, "number": 4, "clusterNumber": null},
+  "stream": {"id": 777, "streamName": "btssmash", "streamSource": "TWITCH"},
+  "phaseGroup": {"id": 1502211},
+  "slots": [
+    {
+      "id": "60086798-0",
+      "slotIndex": 0,
+      "prereqType": "set",
+      "prereqId": "60086790",
+      "prereqPlacement": null,
+      "entrant": {"id": 4863001},
+      "seed": {"id": "s-101", "seedNum": 2},
+      "standing": {
+        "id": "st-1",
+        "placement": 1,
+        "stats": {"score": {"label": "score", "value": 3}}
+      }
+    },
+    {
+      "id": "60086798-1",
+      "slotIndex": 1,
+      "prereqType": "set",
+      "prereqId": "60086791",
+      "prereqPlacement": 2,
+      "entrant": {"id": 4863002},
+      "seed": {"id": "s-102", "seedNum": 5},
+      "standing": {
+        "id": "st-2",
+        "placement": 2,
+        "stats": {"score": {"label": "score", "value": 1}}
+      }
+    }
+  ],
+  "games": [
+    {
+      "id": 901,
+      "orderNum": 1,
+      "state": 3,
+      "winnerId": 4863001,
+      "entrant1Score": 2,
+      "entrant2Score": 0,
+      "stage": {"id": 3, "name": "Battlefield"},
+      "selections": [
+        {"id": 1, "orderNum": null, "selectionType": "CHARACTER", "selectionValue": 1, "entrant": {"id": 4863001}, "participant": null},
+        {"id": 2, "orderNum": null, "selectionType": "CHARACTER", "selectionValue": 19, "entrant": {"id": 4863002}, "participant": null}
+      ]
+    },
+    {
+      "id": 902,
+      "orderNum": 2,
+      "state": 3,
+      "winnerId": 4863002,
+      "entrant1Score": 0,
+      "entrant2Score": 1,
+      "stage": {"id": 8, "name": "Yoshi's Story"},
+      "selections": [
+        {"id": 3, "orderNum": null, "selectionType": "CHARACTER", "selectionValue": 1, "entrant": {"id": 4863001}, "participant": null},
+        {"id": 4, "orderNum": null, "selectionType": "CHARACTER", "selectionValue": 19, "entrant": {"id": 4863002}, "participant": null}
+      ]
+    }
+  ]
+}

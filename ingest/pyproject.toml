@@ -1,0 +1,31 @@
+[project]
+name = "algorank-ingest"
+version = "0.1.0"
+description = "AlgoRank: ingest all recorded Super Smash Bros. Melee results from start.gg and parry.gg into Postgres"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+    "psycopg[binary]>=3.1",
+    "parrygg==0.1.6",
+    "grpcio>=1.60",
+    "protobuf>=4.25",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pglast>=6 ; python_version >= '3.10'",
+]
+
+[project.scripts]
+algorank = "algorank_ingest.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["algorank_ingest*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

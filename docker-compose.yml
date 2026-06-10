@@ -1,0 +1,65 @@
+# AlgoRank: Postgres + ingester.
+#
+#   cp .env.example .env       # fill in API keys
+#   docker compose up -d db
+#   docker compose run --rm ingester migrate
+#   docker compose run --rm ingester verify
+#   docker compose run --rm -d ingester backfill all
+#
+# The same compose file works locally and on a small VPS. The `db` service
+# stores data in the named volume `algorank_pgdata`.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: algorank
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-algorank}
+      POSTGRES_DB: algorank
+    volumes:
+      - algorank_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U algorank"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ingester:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://algorank:${POSTGRES_PASSWORD:-algorank}@db:5432/algorank}
+      STARTGG_API_TOKEN: ${STARTGG_API_TOKEN:-}
+      PARRY_API_KEY: ${PARRY_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  # Continuous incremental sync (start after backfill completes):
+  #   docker compose up -d sync
+  sync:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://algorank:${POSTGRES_PASSWORD:-algorank}@db:5432/algorank}
+      STARTGG_API_TOKEN: ${STARTGG_API_TOKEN:-}
+      PARRY_API_KEY: ${PARRY_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          algorank sync all || true
+          echo "sync done; sleeping 6h"
+          sleep 21600
+        done
+    profiles: ["sync"]
+
+volumes:
+  algorank_pgdata:

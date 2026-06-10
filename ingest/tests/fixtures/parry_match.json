@@ -1,0 +1,41 @@
+{
+  "id": "match-uuid-1",
+  "identifier": "A3",
+  "round": 2,
+  "winners_side": true,
+  "grand_finals": false,
+  "prev_match_id_1": "match-uuid-0a",
+  "prev_match_id_2": "match-uuid-0b",
+  "winners_match_id": "match-uuid-2",
+  "losers_match_id": "match-uuid-9",
+  "state": "MATCH_STATE_COMPLETED",
+  "state_updated_at": "2025-06-08T21:14:09Z",
+  "started_at": "2025-06-08T20:40:00Z",
+  "ended_at": "2025-06-08T21:14:00Z",
+  "winners_placement": 0,
+  "losers_placement": 7,
+  "slots": [
+    {"slot": 0, "seed_id": "seed-uuid-1", "placement": 1, "score": 2.0, "state": "SLOT_STATE_NUMERIC"},
+    {"slot": 1, "seed_id": "seed-uuid-2", "placement": 2, "score": 1.0, "state": "SLOT_STATE_NUMERIC"}
+  ],
+  "match_games": [
+    {
+      "id": "mg-uuid-1",
+      "index": 0,
+      "state": "MATCH_GAME_STATE_COMPLETED",
+      "started_at": "2025-06-08T20:40:30Z",
+      "ended_at": "2025-06-08T20:48:00Z",
+      "stages": [{"id": "stage-uuid-bf", "game_id": "game-melee", "name": "Battlefield", "slug": "battlefield"}],
+      "slots": [
+        {
+          "id": "mgs-1", "slot": 0, "score": 3.0, "state": "SLOT_STATE_NUMERIC", "placement": 1,
+          "participants": [{"id": "mgp-1", "user_id": "user-uuid-a", "characters": [{"id": "char-uuid-fox", "game_id": "game-melee", "name": "Fox", "slug": "fox"}]}]
+        },
+        {
+          "id": "mgs-2", "slot": 1, "score": 0.0, "state": "SLOT_STATE_NUMERIC", "placement": 2,
+          "participants": [{"id": "mgp-2", "user_id": "user-uuid-b", "characters": [{"id": "char-uuid-marth", "game_id": "game-melee", "name": "Marth", "slug": "marth"}]}]
+        }
+      ]
+    }
+  ]
+}

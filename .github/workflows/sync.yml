@@ -1,0 +1,36 @@
+# Incremental sync: keeps the database up to date after the backfill is done.
+# Enable by setting repository variable SYNC_ENABLED=true.
+#
+# Required repository secrets: DATABASE_URL, STARTGG_API_TOKEN, PARRY_API_KEY.
+
+name: Sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "13 */6 * * *"   # every 6 hours
+
+concurrency:
+  group: algorank-ingest     # shares a lock with backfill.yml
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    if: github.event_name == 'workflow_dispatch' || vars.SYNC_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install ./ingest
+      - name: Sync
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STARTGG_API_TOKEN: ${{ secrets.STARTGG_API_TOKEN }}
+          PARRY_API_KEY: ${{ secrets.PARRY_API_KEY }}
+        run: |
+          algorank sync all --max-minutes 330 \
+            || { rc=$?; if [ "$rc" = "3" ]; then echo "::notice::sync paused at time limit; next run continues"; exit 0; else exit "$rc"; fi; }

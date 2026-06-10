@@ -1,0 +1,54 @@
+# Historical backfill, runnable as chained time-boxed chunks.
+#
+# Trigger manually (Actions tab -> Backfill -> Run workflow), or set the
+# repository variable BACKFILL_ENABLED=true to let the schedule run a chunk
+# every 6 hours until the backfill completes. Progress is checkpointed in the
+# database, so each chunk resumes where the previous one stopped.
+#
+# Required repository secrets:
+#   DATABASE_URL        - your hosted Postgres
+#   STARTGG_API_TOKEN
+#   PARRY_API_KEY
+
+name: Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Source to backfill"
+        type: choice
+        options: [all, startgg, parry]
+        default: all
+      max_minutes:
+        description: "Stop gracefully after N minutes"
+        default: "330"
+  schedule:
+    - cron: "43 */6 * * *"
+
+concurrency:
+  group: algorank-ingest          # never overlap with sync or another backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    if: github.event_name == 'workflow_dispatch' || vars.BACKFILL_ENABLED == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install ./ingest
+      - name: Backfill chunk
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STARTGG_API_TOKEN: ${{ secrets.STARTGG_API_TOKEN }}
+          PARRY_API_KEY: ${{ secrets.PARRY_API_KEY }}
+        run: |
+          algorank backfill "${{ inputs.source || 'all' }}" \
+            --max-minutes "${{ inputs.max_minutes || '330' }}" \
+            || { rc=$?; if [ "$rc" = "3" ]; then echo "::notice::chunk done, backfill not finished — next scheduled run continues"; exit 0; else exit "$rc"; fi; }
+          echo "::notice::backfill reports COMPLETE — set BACKFILL_ENABLED=false and enable sync.yml"
